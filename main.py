@@ -18,7 +18,7 @@ openai_model_max_tokens = 2000  # i wonder how to tweak this properly
         backoff_coefficient=2.0,
         initial_delay=1.0,
     ),
-    concurrency_limit=5,
+    concurrency_limit=10
 )
 def generate_response(system_prompt, user_prompt, *args):
     import openai
