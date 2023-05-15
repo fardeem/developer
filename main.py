@@ -8,6 +8,7 @@ generatedDir = "generated"
 openai_image = modal.Image.debian_slim().pip_install("openai", "tiktoken")
 openai_model = "gpt-4"  # or 'gpt-3.5-turbo',
 openai_model_max_tokens = 2000  # i wonder how to tweak this properly
+report_token_count = False
 
 
 @stub.function(
@@ -18,13 +19,16 @@ openai_model_max_tokens = 2000  # i wonder how to tweak this properly
         backoff_coefficient=2.0,
         initial_delay=1.0,
     ),
-    concurrency_limit=10
+    concurrency_limit=5
 )
 def generate_response(system_prompt, user_prompt, *args):
     import openai
     import tiktoken
 
     def reportTokens(prompt):
+        if not report_token_count:
+            return
+
         encoding = tiktoken.encoding_for_model(openai_model)
         # print number of tokens in light gray, with first 10 characters of prompt in green
         print("\033[37m" + str(len(encoding.encode(prompt))) + " tokens\033[0m" +
@@ -56,7 +60,7 @@ def generate_response(system_prompt, user_prompt, *args):
     response = openai.ChatCompletion.create(**params)
 
     # Get the reply from the API response
-    reply = response.choices[0]["message"]["content"]
+    reply = response.choices[0]["message"]["content"]  # type: ignore
     return reply
 
 
@@ -102,7 +106,7 @@ def generate_file(filename, filepaths_string=None, shared_dependencies=None, pro
 
 
 @stub.local_entrypoint()
-def main(prompt, directory=generatedDir, file=None):
+def main(prompt, directory=generatedDir):
     # read file from prompt if it ends in a .md filetype
     if prompt.endswith(".md"):
         with open(prompt, "r") as promptfile:
@@ -111,6 +115,14 @@ def main(prompt, directory=generatedDir, file=None):
     print("hi its me, 🐣the smol developer🐣! you said you wanted:")
     # print the prompt in green color
     print("\033[92m" + prompt + "\033[0m")
+
+    print('\n')
+
+    clean_dir(directory)
+
+    log_file_path = directory + "/log.txt"
+
+    print("Generating filepaths...")
 
     # call openai api with this prompt
     filepaths_string = generate_response.call(
@@ -123,7 +135,12 @@ def main(prompt, directory=generatedDir, file=None):
     """,
         prompt,
     )
-    print(filepaths_string)
+
+    log(
+        log_file_path=log_file_path,
+        text=f"Generating filepaths:\n{filepaths_string}"
+    )
+
     # parse the result into a python list
     list_actual = []
     try:
@@ -135,52 +152,57 @@ def main(prompt, directory=generatedDir, file=None):
             with open("shared_dependencies.md", "r") as shared_dependencies_file:
                 shared_dependencies = shared_dependencies_file.read()
 
-        if file is not None:
-            # check file
-            print("file", file)
-            filename, filecode = generate_file(
-                file, filepaths_string=filepaths_string, shared_dependencies=shared_dependencies, prompt=prompt)
-            write_file(filename, filecode, directory)
-        else:
-            clean_dir(directory)
-
-            # understand shared dependencies
-            shared_dependencies = generate_response.call(
-                """You are an AI developer who is trying to write a program that will generate code for the user based on their intent.
-                
-            In response to the user's prompt:
-
-            ---
-            the app is: {prompt}
-            ---
+        print('Figuring out shared dependencies...')
+        # understand shared dependencies
+        shared_dependencies = generate_response.call(
+            """You are an AI developer who is trying to write a program that will generate code for the user based on their intent.
             
-            the files we have decided to generate are: {filepaths_string}
+        In response to the user's prompt:
 
-            Now that we have a list of files, we need to understand what dependencies they share.
-            Please name and briefly describe what is shared between the files we are generating, including exported variables, data schemas, id names of every DOM elements that javascript functions will use, message names, and function names.
-            Exclusively focus on the names of the shared dependencies, and do not add any other explanation.
-            """,
-                prompt,
+        ---
+        the app is: {prompt}
+        ---
+        
+        the files we have decided to generate are: {filepaths_string}
+
+        Now that we have a list of files, we need to understand what dependencies they share.
+        Please name and briefly describe what is shared between the files we are generating, including exported variables, data schemas, id names of every DOM elements that javascript functions will use, message names, and function names.
+        Exclusively focus on the names of the shared dependencies, and do not add any other explanation.
+        """,
+            prompt,
+        )
+
+        write_file("shared_dependencies.md",
+                   shared_dependencies, directory)
+
+        log(
+            log_file_path=log_file_path,
+            text=f"Generating shared dependencies:\n{shared_dependencies}"
+        )
+
+        print('Generating code for each file...')
+
+        for filename, filecode in generate_file.map(
+            list_actual, order_outputs=False, kwargs=dict(filepaths_string=filepaths_string, shared_dependencies=shared_dependencies, prompt=prompt)
+        ):
+            write_file(
+                filename,
+                filecode,
+                directory,
             )
-            print(shared_dependencies)
-            # write shared dependencies as a md file inside the generated directory
-            write_file("shared_dependencies.md",
-                       shared_dependencies, directory)
 
-            # Existing for loop
-            for filename, filecode in generate_file.map(
-                list_actual, order_outputs=False, kwargs=dict(filepaths_string=filepaths_string, shared_dependencies=shared_dependencies, prompt=prompt)
-            ):
-                write_file(filename, filecode, directory)
+            log(
+                log_file_path=log_file_path,
+                text=f"Generating code for filename: {filename}\nCode:\n{filecode}"
+            )
 
     except ValueError:
-        print("Failed to parse result: " + result)
+        print("Failed to parse result: " + filepaths_string)
 
 
 def write_file(filename, filecode, directory):
     # Output the filename in blue color
     print("\033[94m" + filename + "\033[0m")
-    print(filecode)
 
     file_path = directory + "/" + filename
     dir = os.path.dirname(file_path)
@@ -206,3 +228,8 @@ def clean_dir(directory):
                     os.remove(os.path.join(root, file))
     else:
         os.makedirs(directory, exist_ok=True)
+
+
+def log(log_file_path, text):
+    with open(log_file_path, "a") as log_file:
+        log_file.write(text + "\n\n\n")
