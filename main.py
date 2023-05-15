@@ -1,13 +1,14 @@
-import sys
-import os
-import modal
 import ast
+import os
+import sys
+
+import modal
 
 stub = modal.Stub("smol-developer-v1")
 generatedDir = "generated"
 openai_image = modal.Image.debian_slim().pip_install("openai", "tiktoken")
-openai_model = "gpt-4" # or 'gpt-3.5-turbo',
-openai_model_max_tokens = 2000 # i wonder how to tweak this properly
+openai_model = "gpt-4"  # or 'gpt-3.5-turbo',
+openai_model_max_tokens = 2000  # i wonder how to tweak this properly
 
 
 @stub.function(
@@ -28,8 +29,8 @@ def generate_response(system_prompt, user_prompt, *args):
     def reportTokens(prompt):
         encoding = tiktoken.encoding_for_model(openai_model)
         # print number of tokens in light gray, with first 10 characters of prompt in green
-        print("\033[37m" + str(len(encoding.encode(prompt))) + " tokens\033[0m" + " in prompt: " + "\033[92m" + prompt[:50] + "\033[0m")
-        
+        print("\033[37m" + str(len(encoding.encode(prompt))) + " tokens\033[0m" +
+              " in prompt: " + "\033[92m" + prompt[:50] + "\033[0m")
 
     # Set up your OpenAI API credentials
     openai.api_key = os.environ["OPENAI_API_KEY"]
@@ -113,10 +114,6 @@ def main(prompt, directory=generatedDir, file=None):
     # print the prompt in green color
     print("\033[92m" + prompt + "\033[0m")
 
-    # example prompt:
-    # a Chrome extension that, when clicked, opens a small window with a page where you can enter
-    # a prompt for reading the currently open page and generating some response from openai
-
     # call openai api with this prompt
     filepaths_string = generate_response.call(
         """You are an AI developer who is trying to write a program that will generate code for the user based on their intent.
@@ -143,7 +140,8 @@ def main(prompt, directory=generatedDir, file=None):
         if file is not None:
             # check file
             print("file", file)
-            filename, filecode = generate_file(file, filepaths_string=filepaths_string, shared_dependencies=shared_dependencies, prompt=prompt)
+            filename, filecode = generate_file(
+                file, filepaths_string=filepaths_string, shared_dependencies=shared_dependencies, prompt=prompt)
             write_file(filename, filecode, directory)
         else:
             clean_dir(directory)
@@ -168,14 +166,14 @@ def main(prompt, directory=generatedDir, file=None):
             )
             print(shared_dependencies)
             # write shared dependencies as a md file inside the generated directory
-            write_file("shared_dependencies.md", shared_dependencies, directory)
-            
+            write_file("shared_dependencies.md",
+                       shared_dependencies, directory)
+
             # Existing for loop
             for filename, filecode in generate_file.map(
                 list_actual, order_outputs=False, kwargs=dict(filepaths_string=filepaths_string, shared_dependencies=shared_dependencies, prompt=prompt)
             ):
                 write_file(filename, filecode, directory)
-
 
     except ValueError:
         print("Failed to parse result: " + result)
@@ -185,7 +183,7 @@ def write_file(filename, filecode, directory):
     # Output the filename in blue color
     print("\033[94m" + filename + "\033[0m")
     print(filecode)
-    
+
     file_path = directory + "/" + filename
     dir = os.path.dirname(file_path)
     os.makedirs(dir, exist_ok=True)
@@ -197,9 +195,8 @@ def write_file(filename, filecode, directory):
 
 
 def clean_dir(directory):
-    import shutil
-
-    extensions_to_skip = ['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.svg', '.ico', '.tif', '.tiff']  # Add more extensions if needed
+    extensions_to_skip = ['.png', '.jpg', '.jpeg', '.gif', '.bmp',
+                          '.svg', '.ico', '.tif', '.tiff']  # Add more extensions if needed
 
     # Check if the directory exists
     if os.path.exists(directory):
