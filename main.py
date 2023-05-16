@@ -67,8 +67,8 @@ def generate_response(system_prompt, user_prompt, *args):
 @stub.function()
 def generate_file(filename, filepaths_string=None, shared_dependencies=None, prompt=None):
     # call openai api with this prompt
-    filecode = generate_response.call(
-        f"""You are an AI developer who is trying to write a program that will generate code for the user based on their intent.
+    system_prompt = f"""
+    You are an AI developer who is trying to write a program that will generate code for the user based on their intent.
         
     the app is: {prompt}
 
@@ -78,8 +78,10 @@ def generate_file(filename, filepaths_string=None, shared_dependencies=None, pro
     
     only write valid code for the given filepath and file type, and return only the code.
     do not add any other explanation, only return valid code for that file type.
-    """,
-        f"""
+    
+    """
+
+    user_prompt = f"""
     We have broken up the program into per-file generation. 
     Now your job is to generate only the code for the file {filename}. 
     Make sure to have consistent filenames if you reference other files we are also generating.
@@ -99,10 +101,14 @@ def generate_file(filename, filepaths_string=None, shared_dependencies=None, pro
     
     Begin generating the code now.
 
-    """,
+    """
+
+    filecode = generate_response.call(
+        system_prompt,
+        user_prompt
     )
 
-    return filename, filecode
+    return filename, filecode, system_prompt, user_prompt
 
 
 @stub.local_entrypoint()
@@ -120,17 +126,19 @@ def main(prompt, directory=generatedDir):
 
     clean_dir(directory)
 
-    log_file_path = directory + "/log.txt"
+    log_file_path = directory + "/logs.md"
 
     print("Generating filepaths...")
 
     # call openai api with this prompt
     filepaths_string = generate_response.call(
-        """You are an AI developer who is trying to write a program that will generate code for the user based on their intent.
-        
-    When given their intent, create a complete, exhaustive list of filepaths that the user would write to make the program.
+        """
+    You are an AI developer who is trying to write a program that will generate code for the user based on their intent.
     
+    When given their intent, create a complete, exhaustive list of filepaths that the user would write to make the program.
+
     only list the filepaths you would write, and return them as a python list of strings. 
+    
     do not add any other explanation, only return a python list of strings.
     """,
         prompt,
@@ -138,7 +146,7 @@ def main(prompt, directory=generatedDir):
 
     log(
         log_file_path=log_file_path,
-        text=f"Generating filepaths:\n{filepaths_string}"
+        text=f"**Generating filepaths:**\n{filepaths_string}"
     )
 
     # parse the result into a python list
@@ -155,7 +163,8 @@ def main(prompt, directory=generatedDir):
         print('Figuring out shared dependencies...')
         # understand shared dependencies
         shared_dependencies = generate_response.call(
-            """You are an AI developer who is trying to write a program that will generate code for the user based on their intent.
+            """
+        You are an AI developer who is trying to write a program that will generate code for the user based on their intent.
             
         In response to the user's prompt:
 
@@ -177,12 +186,12 @@ def main(prompt, directory=generatedDir):
 
         log(
             log_file_path=log_file_path,
-            text=f"Generating shared dependencies:\n{shared_dependencies}"
+            text=f"**Generating shared dependencies:**\n{shared_dependencies}"
         )
 
         print('Generating code for each file...')
 
-        for filename, filecode in generate_file.map(
+        for filename, filecode, system_prompt, user_prompt in generate_file.map(
             list_actual, order_outputs=False, kwargs=dict(filepaths_string=filepaths_string, shared_dependencies=shared_dependencies, prompt=prompt)
         ):
             write_file(
@@ -193,7 +202,15 @@ def main(prompt, directory=generatedDir):
 
             log(
                 log_file_path=log_file_path,
-                text=f"Generating code for filename: {filename}\nCode:\n{filecode}"
+                text=f"""
+**Generating code for filename:** {filename}
+System prompt:
+{system_prompt}
+User Prompt:
+{user_prompt}
+Code:
+{filecode}
+                """
             )
 
     except ValueError:
@@ -226,6 +243,10 @@ def clean_dir(directory):
                 _, extension = os.path.splitext(file)
                 if extension not in extensions_to_skip:
                     os.remove(os.path.join(root, file))
+
+            for dir in dirs:
+                clean_dir(os.path.join(root, dir))
+                os.rmdir(os.path.join(root, dir))
     else:
         os.makedirs(directory, exist_ok=True)
 
